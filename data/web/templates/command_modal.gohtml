@@ -1,0 +1,87 @@
+<div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md animate-fade-in">
+    <div class="glass-panel max-w-lg w-full p-6 shadow-2xl relative space-y-5 bg-slate-900/95 border-slate-700/80">
+        <!-- Modal Header -->
+        <div class="flex items-center justify-between border-b border-slate-800 pb-4">
+            <div class="flex items-center space-x-3">
+                <div class="p-2.5 bg-indigo-500/15 text-indigo-400 rounded-xl border border-indigo-500/25">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path>
+                    </svg>
+                </div>
+                <div>
+                    <h3 class="text-base font-bold text-white tracking-tight">Navigate Display Target</h3>
+                    <p class="text-xs text-slate-400 font-mono">Send remote browser navigation with optional CSS selector wait</p>
+                </div>
+            </div>
+            <button onclick="window.closeModal()" class="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800 transition">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                </svg>
+            </button>
+        </div>
+
+        <!-- Navigation Form -->
+        <form hx-post="/api/displays/navigate" hx-target="#modal-container" class="space-y-4">
+            <div>
+                <label class="block text-xs font-medium text-slate-300 mb-1">Target Display / Channel</label>
+                <input type="text" name="target" value="{{.Target}}" required
+                       placeholder="e.g. display01 or display"
+                       class="w-full bg-slate-950/90 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono">
+            </div>
+
+            <div class="space-y-2">
+                <div class="flex items-center justify-between">
+                    <label class="block text-xs font-medium text-slate-300">Target URL</label>
+                    <span class="text-[10px] text-slate-500 font-mono">Select preset or type URL</span>
+                </div>
+
+                <!-- URL Presets -->
+                <div class="flex flex-wrap gap-1.5">
+                    <button type="button" onclick="document.getElementById('modal-nav-url').value='https://google.com'"
+                            class="px-2 py-1 text-[11px] font-mono bg-slate-800 hover:bg-indigo-600/30 hover:border-indigo-500/50 text-slate-300 rounded border border-slate-700 transition">
+                        Google
+                    </button>
+                    <button type="button" onclick="document.getElementById('modal-nav-url').value='https://wikipedia.org'"
+                            class="px-2 py-1 text-[11px] font-mono bg-slate-800 hover:bg-indigo-600/30 hover:border-indigo-500/50 text-slate-300 rounded border border-slate-700 transition">
+                        Wikipedia
+                    </button>
+                    <button type="button" onclick="document.getElementById('modal-nav-url').value='https://golang.org'"
+                            class="px-2 py-1 text-[11px] font-mono bg-slate-800 hover:bg-indigo-600/30 hover:border-indigo-500/50 text-slate-300 rounded border border-slate-700 transition">
+                        Golang
+                    </button>
+                    <button type="button" onclick="document.getElementById('modal-nav-url').value='about:blank'"
+                            class="px-2 py-1 text-[11px] font-mono bg-slate-800 hover:bg-indigo-600/30 hover:border-indigo-500/50 text-slate-300 rounded border border-slate-700 transition">
+                        about:blank
+                    </button>
+                </div>
+
+                <input type="url" id="modal-nav-url" name="url" required
+                       placeholder="https://example.com"
+                       class="w-full bg-slate-950/90 border border-slate-800 rounded-lg px-3 py-2 text-xs text-emerald-400 placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono">
+            </div>
+
+            <div>
+                <label class="block text-xs font-medium text-slate-300 mb-1">Wait for CSS Selector <span class="text-slate-500 font-normal">(Optional)</span></label>
+                <input type="text" name="selector"
+                       placeholder="e.g. #main-content, .dashboard-ready"
+                       class="w-full bg-slate-950/90 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono">
+                <p class="text-[11px] text-slate-500 mt-1">Waits until the specified DOM element renders before the display client responds.</p>
+            </div>
+
+            <!-- Footer Actions -->
+            <div class="flex items-center justify-end space-x-3 pt-4 border-t border-slate-800">
+                <button type="button" onclick="window.closeModal()"
+                        class="px-4 py-2 text-xs font-medium text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-lg transition">
+                    Cancel
+                </button>
+                <button type="submit"
+                        class="px-4 py-2 text-xs font-medium text-white bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 rounded-lg transition shadow-md flex items-center space-x-1.5">
+                    <span class="htmx-indicator animate-spin-fast">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                    </span>
+                    <span>Send Navigation Command</span>
+                </button>
+            </div>
+        </form>
+    </div>
+</div>

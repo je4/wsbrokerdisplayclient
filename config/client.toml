@@ -1,0 +1,24 @@
+addr = "localhost:8770"
+extaddr = "http://localhost:8770"
+name = "controller01"
+wsbroker = "https://localhost:8765"
+channels = ["all", "display"]
+targets = ["display01", "display"]
+max_messages = 100
+timeout = "10s"
+read_limit = 16777216
+
+[clienttls]
+type = "minivault"
+[clienttls.minivault]
+baseurl = "https://localhost:8759/api/v1"
+parenttoken = "pa.22f09dfd1cbfbe9f.c17b29cb2b730533"
+tokentype = "client_cert"
+tokenpolicies = ["wsbroker.client"]
+certtype = "client_cert"
+uris = ["wsbroker:client:controller01", "wsbroker:channel:all", "wsbroker:channel:intern", "wsbroker:channel:display"]
+ca = ["certs/minivault.ca.pem"]
+usesystempool = false
+
+[webtls]
+type = "dev"

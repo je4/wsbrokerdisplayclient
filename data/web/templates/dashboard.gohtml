@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WSBroker Display Controller</title>
+    <link rel="stylesheet" href="/static/css/tailwind.min.css">
+    <link rel="stylesheet" href="/static/css/dashboard.css">
+    <script src="/static/js/htmx-2.0.11.js"></script>
+</head>
+<body class="bg-[#060911] text-slate-100 min-h-screen font-sans antialiased flex flex-col selection:bg-indigo-500/30 selection:text-indigo-200">
+
+    <!-- Top Navigation Bar -->
+    <header class="bg-[#0c111e]/90 backdrop-blur-md sticky top-0 z-40 border-b border-slate-800/80 shadow-md">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex flex-col md:flex-row md:items-center md:justify-between py-3 md:py-0 md:h-18 gap-3 md:gap-0">
+                <!-- Branding & Client Info -->
+                <div class="flex items-center space-x-3.5">
+                    <div class="p-2.5 bg-gradient-to-br from-indigo-500/20 to-purple-600/20 text-indigo-400 rounded-xl border border-indigo-500/30 shadow-inner">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path>
+                        </svg>
+                    </div>
+                    <div>
+                        <div class="flex items-center space-x-2">
+                            <h1 class="text-base font-bold text-white tracking-tight">WSBroker Display Controller</h1>
+                            <span class="px-2 py-0.5 text-[10px] font-mono tracking-wider font-semibold rounded-md bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">HUB</span>
+                        </div>
+                        <p class="text-xs text-slate-400 font-mono mt-0.5">
+                            Client: <span class="text-indigo-400 font-semibold">{{.ClientName}}</span>
+                            <span class="text-slate-600 mx-1">&bull;</span>
+                            Broker: <span class="text-slate-300">{{.BrokerURL}}</span>
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Clock & Telemetry Widget -->
+                <div class="flex items-center space-x-4 self-end md:self-auto">
+                    <!-- Stream Status Pill -->
+                    <div class="hidden sm:flex items-center space-x-2 px-3 py-1.5 rounded-lg bg-slate-900/80 border border-slate-800 text-xs">
+                        <span id="stream-pulse-dot" class="status-dot status-dot-online"></span>
+                        <span id="stream-status-text" class="text-emerald-400 font-medium font-mono text-[11px]">Live SSE Active</span>
+                    </div>
+
+                    <!-- Synchronized Digital Clock -->
+                    <div class="flex items-center space-x-3 px-3.5 py-1.5 bg-slate-900/90 border border-slate-800 rounded-xl shadow-inner">
+                        <div class="text-right">
+                            <div id="digital-clock" class="text-base font-mono font-bold text-indigo-300 clock-digits">--:--:--</div>
+                            <div class="flex items-center justify-end space-x-1.5 text-[10px] text-slate-400 font-mono">
+                                <span id="digital-date">---</span>
+                                <span id="ntp-offset-pill" class="px-1.5 py-0.2 rounded font-mono text-[9px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">NTP Sync</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+
+        <!-- Metrics Overview Summary Bar -->
+        <section class="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <!-- Total Displays -->
+            <div class="glass-panel p-4 flex items-center space-x-4">
+                <div class="p-3 bg-indigo-500/15 text-indigo-400 rounded-xl border border-indigo-500/25">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"></path>
+                    </svg>
+                </div>
+                <div>
+                    <p class="text-xs font-medium text-slate-400 uppercase tracking-wider">Total Displays</p>
+                    <p id="stat-total-displays" class="text-2xl font-bold font-mono text-white mt-0.5">{{if .Stats}}{{.Stats.TotalDisplays}}{{else}}0{{end}}</p>
+                </div>
+            </div>
+
+            <!-- Online Displays -->
+            <div class="glass-panel p-4 flex items-center space-x-4">
+                <div class="p-3 bg-emerald-500/15 text-emerald-400 rounded-xl border border-emerald-500/25">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                    </svg>
+                </div>
+                <div>
+                    <p class="text-xs font-medium text-slate-400 uppercase tracking-wider">Online Nodes</p>
+                    <p id="stat-active-displays" class="text-2xl font-bold font-mono text-emerald-400 mt-0.5">{{if .Stats}}{{.Stats.ActiveDisplays}}{{else}}0{{end}}</p>
+                </div>
+            </div>
+
+            <!-- Offline Displays -->
+            <div class="glass-panel p-4 flex items-center space-x-4">
+                <div class="p-3 bg-slate-500/15 text-slate-400 rounded-xl border border-slate-500/25">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"></path>
+                    </svg>
+                </div>
+                <div>
+                    <p class="text-xs font-medium text-slate-400 uppercase tracking-wider">Offline Nodes</p>
+                    <p id="stat-offline-displays" class="text-2xl font-bold font-mono text-slate-400 mt-0.5">{{if .Stats}}{{.Stats.OfflineDisplays}}{{else}}0{{end}}</p>
+                </div>
+            </div>
+
+            <!-- Commands Executed -->
+            <div class="glass-panel p-4 flex items-center space-x-4">
+                <div class="p-3 bg-cyan-500/15 text-cyan-400 rounded-xl border border-cyan-500/25">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                    </svg>
+                </div>
+                <div>
+                    <p class="text-xs font-medium text-slate-400 uppercase tracking-wider">Commands</p>
+                    <p id="stat-total-commands" class="text-2xl font-bold font-mono text-cyan-300 mt-0.5">{{if .Stats}}{{.Stats.TotalCommands}}{{else}}0{{end}}</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Global Action & Bulk Operations Toolbar -->
+        <section class="glass-panel p-4 space-y-4">
+            <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                <!-- Search & Filters -->
+                <div class="flex flex-1 flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                    <!-- Search Input -->
+                    <div class="relative flex-1 max-w-md">
+                        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                            </svg>
+                        </div>
+                        <input type="text" id="display-search-input" placeholder="Filter displays by ID, name, channel, or URL..."
+                               class="w-full pl-9 pr-8 py-2 text-xs bg-slate-900/90 border border-slate-800 rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 font-mono transition">
+                    </div>
+
+                    <!-- Status Filter Select -->
+                    <div class="flex items-center space-x-2">
+                        <select id="display-status-filter"
+                                class="px-3 py-2 text-xs bg-slate-900/90 border border-slate-800 rounded-lg text-slate-300 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-medium">
+                            <option value="all">All Displays</option>
+                            <option value="online">Online Only</option>
+                            <option value="offline">Offline Only</option>
+                        </select>
+                        <span id="search-match-count" class="text-[11px] text-slate-500 font-mono hidden sm:inline-block whitespace-nowrap"></span>
+                    </div>
+                </div>
+
+                <!-- Global & Bulk Control Actions -->
+                <div class="flex flex-wrap items-center gap-2">
+                    <!-- Bulk Navigate Form -->
+                    <form hx-post="/api/displays/bulk/navigate" hx-swap="none" class="flex items-center space-x-1.5 flex-1 sm:flex-initial">
+                        <input type="url" name="url" placeholder="https://..." required
+                               class="px-2.5 py-1.5 text-xs bg-slate-900/90 border border-slate-800 rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 w-36 sm:w-44 font-mono">
+                        <button type="submit" title="Broadcast URL to all displays"
+                                class="px-3 py-1.5 text-xs font-medium text-white bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 rounded-lg transition shadow-sm flex items-center space-x-1.5 whitespace-nowrap">
+                            <span class="htmx-indicator animate-spin-fast">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                            </span>
+                            <svg class="w-3.5 h-3.5 htmx-hide-on-request" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z"></path>
+                            </svg>
+                            <span>Broadcast</span>
+                        </button>
+                    </form>
+
+                    <!-- Bulk Status Refresh -->
+                    <button hx-post="/api/displays/bulk/status" hx-swap="none" title="Refresh status from all displays"
+                            class="px-2.5 py-1.5 text-xs font-medium text-slate-300 hover:text-white bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-lg transition flex items-center space-x-1.5">
+                        <span class="htmx-indicator animate-spin-fast">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                        </span>
+                        <svg class="w-3.5 h-3.5 htmx-hide-on-request" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                        </svg>
+                        <span class="hidden sm:inline">Refresh All</span>
+                    </button>
+
+                    <!-- Bulk Screenshot -->
+                    <button hx-post="/api/displays/bulk/screenshot" hx-swap="none" title="Capture screenshot from all displays"
+                            class="px-2.5 py-1.5 text-xs font-medium text-slate-300 hover:text-white bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-lg transition flex items-center space-x-1.5">
+                        <span class="htmx-indicator animate-spin-fast">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                        </span>
+                        <svg class="w-3.5 h-3.5 htmx-hide-on-request" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"></path>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                        </svg>
+                        <span class="hidden sm:inline">Capture All</span>
+                    </button>
+
+                    <!-- Add Target Modal Trigger -->
+                    <button hx-get="/modal/target/add" hx-target="#modal-container" hx-swap="innerHTML"
+                            class="px-3 py-1.5 text-xs font-medium text-white bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg transition flex items-center space-x-1.5">
+                        <svg class="w-3.5 h-3.5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+                        </svg>
+                        <span>Add Target</span>
+                    </button>
+
+                    <!-- Live Stream Pause/Resume Toggle -->
+                    <button id="livestream-toggle-btn" onclick="window.toggleLiveStream()"
+                            class="px-2.5 py-1.5 text-xs font-medium bg-indigo-600/20 text-indigo-300 hover:bg-indigo-600/30 border border-indigo-500/40 rounded-lg transition flex items-center space-x-1.5">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                        </svg>
+                        <span>Pause Stream</span>
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Displays Section -->
+        <section class="space-y-3">
+            <div class="flex items-center justify-between">
+                <div>
+                    <h2 class="text-base font-semibold text-white tracking-tight flex items-center space-x-2">
+                        <span>Target Displays</span>
+                    </h2>
+                </div>
+                <div class="text-xs text-slate-400 font-mono">
+                    Granular SSE Stream Updates
+                </div>
+            </div>
+
+            <!-- Empty Search State -->
+            <div id="search-empty-state" class="hidden glass-panel p-8 text-center space-y-2">
+                <svg class="w-10 h-10 mx-auto text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                </svg>
+                <p class="text-sm font-medium text-slate-300">No display nodes match your search query</p>
+                <p class="text-xs text-slate-500">Try adjusting your search terms or status filters.</p>
+            </div>
+
+            <!-- Displays Cards Grid Container -->
+            <div id="displays-grid" hx-get="/displays" hx-trigger="load" hx-swap="innerHTML" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                <!-- Initial Loading Skeleton -->
+                <div class="glass-panel p-6 animate-pulse text-center text-slate-500 text-sm">
+                    Connecting to display nodes...
+                </div>
+            </div>
+        </section>
+
+        <!-- Command Execution Activity Log -->
+        <section class="space-y-3 pt-4 border-t border-slate-800/80">
+            <div class="flex items-center justify-between">
+                <div>
+                    <h2 class="text-base font-semibold text-white tracking-tight">Command Activity Log</h2>
+                    <p class="text-xs text-slate-400">Real-time audit log of executed remote commands and statuses</p>
+                </div>
+                <button hx-post="/history/clear" hx-target="#history-table-body" hx-swap="innerHTML"
+                        class="px-2.5 py-1 text-xs text-slate-400 hover:text-slate-200 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-lg transition flex items-center space-x-1.5">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                    </svg>
+                    <span>Clear History</span>
+                </button>
+            </div>
+
+            <div class="glass-panel overflow-hidden">
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-sm text-slate-300">
+                        <thead class="bg-slate-900/80 text-[11px] uppercase tracking-wider text-slate-400 border-b border-slate-800">
+                            <tr>
+                                <th scope="col" class="py-3 px-4 font-semibold">Time</th>
+                                <th scope="col" class="py-3 px-4 font-semibold">Target</th>
+                                <th scope="col" class="py-3 px-4 font-semibold">Action</th>
+                                <th scope="col" class="py-3 px-4 font-semibold">Duration</th>
+                                <th scope="col" class="py-3 px-4 font-semibold">Status</th>
+                                <th scope="col" class="py-3 px-4 font-semibold">Details</th>
+                            </tr>
+                        </thead>
+                        <tbody id="history-table-body" hx-get="/history" hx-trigger="load" hx-swap="innerHTML" class="divide-y divide-slate-800/60 font-mono text-xs">
+                            <tr>
+                                <td colspan="6" class="py-6 text-center text-slate-500">Loading command history...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Footer -->
+    <footer class="mt-auto border-t border-slate-800/80 bg-[#0c111e]/60 text-slate-500 text-xs py-4">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-2">
+            <div class="flex items-center space-x-2">
+                <span>WSBroker Display Controller &copy; {{.Year}}</span>
+                <span class="text-slate-700">&bull;</span>
+                <span class="text-slate-400">High-Performance Kiosk Fleet Management</span>
+            </div>
+            <div>Listening on <code class="text-slate-400 font-mono">{{.ListenAddr}}</code></div>
+        </div>
+    </footer>
+
+    <!-- Modal Container for Lightboxes & Dialogs -->
+    <div id="modal-container"></div>
+
+    <!-- Notification Toast Container -->
+    <div id="toast-container" class="fixed bottom-5 right-5 z-50 flex flex-col space-y-2 pointer-events-none"></div>
+
+    <!-- Dashboard Interactive Script -->
+    <script src="/static/js/dashboard.js"></script>
+
+</body>
+</html>

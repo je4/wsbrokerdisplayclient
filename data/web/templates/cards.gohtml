@@ -1,0 +1,22 @@
+{{range .Displays}}
+    {{template "display_card.gohtml" .}}
+{{else}}
+    <div class="col-span-full glass-panel p-10 text-center space-y-4 border-dashed border-slate-800">
+        <div class="w-14 h-14 mx-auto bg-indigo-500/10 text-indigo-400 rounded-2xl border border-indigo-500/20 flex items-center justify-center">
+            <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path>
+            </svg>
+        </div>
+        <div>
+            <p class="font-semibold text-white text-base">No Display Nodes Configured</p>
+            <p class="text-xs text-slate-400 max-w-sm mx-auto mt-1">Register a display node using the button below or specify targets in your configuration file.</p>
+        </div>
+        <button hx-get="/modal/target/add" hx-target="#modal-container" hx-swap="innerHTML"
+                class="px-4 py-2 text-xs font-medium text-white bg-indigo-600 hover:bg-indigo-500 rounded-lg transition shadow-sm inline-flex items-center space-x-1.5">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+            </svg>
+            <span>Register First Target</span>
+        </button>
+    </div>
+{{end}}

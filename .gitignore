@@ -28,6 +28,9 @@ go.work.sum
 # env file
 .env
 
+certs/
+
 # Editor/IDE
-# .idea/
+.idea/
+.junie/
 # .vscode/
