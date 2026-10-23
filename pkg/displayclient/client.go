@@ -6,9 +6,6 @@ package displayclient
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
-	"fmt"
 	"sync"
 	"time"
 
@@ -21,26 +18,7 @@ import (
 
 // BrokerClient abstracts the underlying WSBroker transport operations.
 // Both *rawclient.Client and test mock implementations satisfy this interface.
-type BrokerClient interface {
-	// ClientName returns the configured unique identifier of the WSBroker client.
-	ClientName() string
-	// Send transmits an event envelope over the WebSocket connection.
-	Send(ctx context.Context, evt *event.Event) error
-	// OnEvent registers a handler callback for all incoming events.
-	OnEvent(handler rawclient.EventHandler) rawclient.UnsubscribeFunc
-	// OnMessage registers a handler callback for incoming TypeMessage events.
-	OnMessage(handler rawclient.EventHandler) rawclient.UnsubscribeFunc
-	// OnDirect registers a handler callback for events addressed directly to this client.
-	OnDirect(handler rawclient.EventHandler) rawclient.UnsubscribeFunc
-	// OnChannel registers a handler callback for events broadcast to a channel.
-	OnChannel(channel string, handler rawclient.EventHandler) rawclient.UnsubscribeFunc
-	// Connect connects to the WSBroker server asynchronously.
-	Connect(ctx context.Context) error
-	// ConnectSync connects to the WSBroker server synchronously.
-	ConnectSync(ctx context.Context) error
-	// Close gracefully closes the client connection.
-	Close() error
-}
+type BrokerClient = rawclient.BrokerClient
 
 // Client is a high-level remote display control client wrapping BrokerClient.
 // It manages correlation tokens and response channels to provide synchronous
@@ -49,8 +27,6 @@ type Client struct {
 	raw                   BrokerClient
 	logger                zLogger.ZLogger
 	mu                    sync.RWMutex
-	waiters               map[string]chan *event.Event
-	unsubEvt              rawclient.UnsubscribeFunc
 	closed                bool
 	defaultTimeout        time.Duration
 	defaultScreenshotOpts ScreenshotOptions
@@ -64,9 +40,8 @@ func New(raw BrokerClient, logger zLogger.ZLogger, opts ...Option) (*Client, err
 	}
 
 	c := &Client{
-		raw:     raw,
-		logger:  logger,
-		waiters: make(map[string]chan *event.Event),
+		raw:    raw,
+		logger: logger,
 		defaultScreenshotOpts: ScreenshotOptions{
 			Format:  "jpeg",
 			Quality: 85,
@@ -77,61 +52,7 @@ func New(raw BrokerClient, logger zLogger.ZLogger, opts ...Option) (*Client, err
 		opt(c)
 	}
 
-	// Register global event listener for correlation token resolution
-	c.unsubEvt = c.raw.OnEvent(c.handleIncomingEvent)
-
 	return c, nil
-}
-
-// handleIncomingEvent routes incoming events to pending request waiters matching event.Token.
-func (c *Client) handleIncomingEvent(evt *event.Event) {
-	if evt == nil || evt.Token == "" {
-		return
-	}
-
-	c.mu.RLock()
-	ch, found := c.waiters[evt.Token]
-	closed := c.closed
-	c.mu.RUnlock()
-
-	if closed {
-		return
-	}
-
-	if found {
-		select {
-		case ch <- evt:
-		default:
-			if c.logger != nil {
-				c.logger.Warn().Str("token", evt.Token).Msg("waiter channel blocked or full")
-			}
-		}
-	}
-}
-
-// registerWaiter creates and registers a response channel for the specified correlation token.
-func (c *Client) registerWaiter(token string) chan *event.Event {
-	ch := make(chan *event.Event, 1)
-	c.mu.Lock()
-	if !c.closed {
-		c.waiters[token] = ch
-	}
-	c.mu.Unlock()
-	return ch
-}
-
-// deregisterWaiter removes the response channel associated with the token.
-func (c *Client) deregisterWaiter(token string) {
-	c.mu.Lock()
-	delete(c.waiters, token)
-	c.mu.Unlock()
-}
-
-// generateToken creates a cryptographically unique correlation token.
-func generateToken() string {
-	b := make([]byte, 12)
-	_, _ = rand.Read(b)
-	return fmt.Sprintf("req_%d_%s", time.Now().UnixNano(), hex.EncodeToString(b))
 }
 
 // applyTimeout returns a child context bounded by the default timeout if configured and no deadline is set.
@@ -172,17 +93,6 @@ func (c *Client) Close() error {
 		return nil
 	}
 	c.closed = true
-
-	if c.unsubEvt != nil {
-		c.unsubEvt()
-		c.unsubEvt = nil
-	}
-
-	// Drain any pending waiters
-	for token, ch := range c.waiters {
-		delete(c.waiters, token)
-		close(ch)
-	}
 	c.mu.Unlock()
 
 	return c.raw.Close()
@@ -219,10 +129,6 @@ func (c *Client) Navigate(ctx context.Context, target string, targetURL string, 
 		selector = waitSelector[0]
 	}
 
-	token := generateToken()
-	ch := c.registerWaiter(token)
-	defer c.deregisterWaiter(token)
-
 	cmd := CommandMessage{
 		Event:    EventNavigate,
 		Action:   ActionNavigate,
@@ -234,38 +140,29 @@ func (c *Client) Navigate(ctx context.Context, target string, targetURL string, 
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create navigate command event")
 	}
-	evt.Token = token
 
-	if err := c.raw.Send(ctx, evt); err != nil {
+	respEvt, err := c.raw.Request(ctx, evt)
+	if err != nil {
 		return nil, errors.Wrap(err, "failed to send navigate command")
 	}
-
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	case respEvt := <-ch:
-		if respEvt == nil {
-			return nil, errors.New("client closed before response received")
-		}
-		var resp NavigateResponse
-		if err := respEvt.UnmarshalData(&resp); err != nil {
-			return nil, errors.Wrap(err, "failed to unmarshal navigate response")
-		}
-		if resp.Status != "ok" && resp.Error != "" {
-			return &resp, errors.Errorf("navigate error: %s", resp.Error)
-		}
-		return &resp, nil
+	if respEvt == nil {
+		return nil, errors.New("client closed before response received")
 	}
+
+	var resp NavigateResponse
+	if err := respEvt.UnmarshalData(&resp); err != nil {
+		return nil, errors.Wrap(err, "failed to unmarshal navigate response")
+	}
+	if resp.Status != "ok" && resp.Error != "" {
+		return &resp, errors.Errorf("navigate error: %s", resp.Error)
+	}
+	return &resp, nil
 }
 
 // GetURL queries the current primary page location URL of the target display client synchronously.
 func (c *Client) GetURL(ctx context.Context, target string) (string, error) {
 	ctx, cancel := c.applyTimeout(ctx)
 	defer cancel()
-
-	token := generateToken()
-	ch := c.registerWaiter(token)
-	defer c.deregisterWaiter(token)
 
 	cmd := CommandMessage{
 		Event:  EventGetURL,
@@ -276,28 +173,23 @@ func (c *Client) GetURL(ctx context.Context, target string) (string, error) {
 	if err != nil {
 		return "", errors.Wrap(err, "failed to create geturl command event")
 	}
-	evt.Token = token
 
-	if err := c.raw.Send(ctx, evt); err != nil {
+	respEvt, err := c.raw.Request(ctx, evt)
+	if err != nil {
 		return "", errors.Wrap(err, "failed to send geturl command")
 	}
-
-	select {
-	case <-ctx.Done():
-		return "", ctx.Err()
-	case respEvt := <-ch:
-		if respEvt == nil {
-			return "", errors.New("client closed before response received")
-		}
-		var resp URLResponse
-		if err := respEvt.UnmarshalData(&resp); err != nil {
-			return "", errors.Wrap(err, "failed to unmarshal geturl response")
-		}
-		if resp.Error != "" {
-			return "", errors.Errorf("geturl error: %s", resp.Error)
-		}
-		return resp.URL, nil
+	if respEvt == nil {
+		return "", errors.New("client closed before response received")
 	}
+
+	var resp URLResponse
+	if err := respEvt.UnmarshalData(&resp); err != nil {
+		return "", errors.Wrap(err, "failed to unmarshal geturl response")
+	}
+	if resp.Error != "" {
+		return "", errors.Errorf("geturl error: %s", resp.Error)
+	}
+	return resp.URL, nil
 }
 
 // GetScreenshot requests a bounded viewport screenshot from the target display client synchronously.
@@ -322,10 +214,6 @@ func (c *Client) GetScreenshot(ctx context.Context, target string, opts ...Scree
 		opt.Quality = 85
 	}
 
-	token := generateToken()
-	ch := c.registerWaiter(token)
-	defer c.deregisterWaiter(token)
-
 	cmd := CommandMessage{
 		Event:   EventGetScreenshot,
 		Action:  ActionGetScreenshot,
@@ -337,48 +225,39 @@ func (c *Client) GetScreenshot(ctx context.Context, target string, opts ...Scree
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create getscreenshot command event")
 	}
-	evt.Token = token
 
-	if err := c.raw.Send(ctx, evt); err != nil {
+	respEvt, err := c.raw.Request(ctx, evt)
+	if err != nil {
 		return nil, errors.Wrap(err, "failed to send getscreenshot command")
 	}
-
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	case respEvt := <-ch:
-		if respEvt == nil {
-			return nil, errors.New("client closed before response received")
-		}
-		if respEvt.Type == event.TypeFile {
-			var fileMsg event.FileMessage
-			if err := respEvt.UnmarshalData(&fileMsg); err != nil {
-				return nil, errors.Wrap(err, "failed to unmarshal screenshot file message")
-			}
-			return &ScreenshotResult{
-				Filename: fileMsg.Filename,
-				MimeType: fileMsg.MimeType,
-				Data:     fileMsg.Data,
-			}, nil
-		}
-
-		// Check if an error message response was returned
-		var resp ScreenshotResponse
-		if err := respEvt.UnmarshalData(&resp); err == nil && resp.Error != "" {
-			return nil, errors.Errorf("screenshot error: %s", resp.Error)
-		}
-		return nil, errors.New("unexpected response payload received for screenshot request")
+	if respEvt == nil {
+		return nil, errors.New("client closed before response received")
 	}
+
+	if respEvt.Type == event.TypeFile {
+		var fileMsg event.FileMessage
+		if err := respEvt.UnmarshalData(&fileMsg); err != nil {
+			return nil, errors.Wrap(err, "failed to unmarshal screenshot file message")
+		}
+		return &ScreenshotResult{
+			Filename: fileMsg.Filename,
+			MimeType: fileMsg.MimeType,
+			Data:     fileMsg.Data,
+		}, nil
+	}
+
+	// Check if an error message response was returned
+	var resp ScreenshotResponse
+	if err := respEvt.UnmarshalData(&resp); err == nil && resp.Error != "" {
+		return nil, errors.Errorf("screenshot error: %s", resp.Error)
+	}
+	return nil, errors.New("unexpected response payload received for screenshot request")
 }
 
 // GetStatus queries the telemetry dashboard data of the target display client synchronously.
 func (c *Client) GetStatus(ctx context.Context, target string) (*rest.DashboardData, error) {
 	ctx, cancel := c.applyTimeout(ctx)
 	defer cancel()
-
-	token := generateToken()
-	ch := c.registerWaiter(token)
-	defer c.deregisterWaiter(token)
 
 	cmd := CommandMessage{
 		Event:  EventGetStatus,
@@ -389,34 +268,29 @@ func (c *Client) GetStatus(ctx context.Context, target string) (*rest.DashboardD
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create getstatus command event")
 	}
-	evt.Token = token
 
-	if err := c.raw.Send(ctx, evt); err != nil {
+	respEvt, err := c.raw.Request(ctx, evt)
+	if err != nil {
 		return nil, errors.Wrap(err, "failed to send getstatus command")
 	}
-
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	case respEvt := <-ch:
-		if respEvt == nil {
-			return nil, errors.New("client closed before response received")
-		}
-		var resp StatusResponse
-		if err := respEvt.UnmarshalData(&resp); err != nil {
-			return nil, errors.Wrap(err, "failed to unmarshal getstatus response")
-		}
-		if resp.Status != "ok" && resp.Error != "" {
-			return nil, errors.Errorf("getstatus error: %s", resp.Error)
-		}
-		if resp.Error != "" {
-			return nil, errors.Errorf("getstatus error: %s", resp.Error)
-		}
-		if resp.Data == nil {
-			return nil, errors.New("getstatus response missing data payload")
-		}
-		return resp.Data, nil
+	if respEvt == nil {
+		return nil, errors.New("client closed before response received")
 	}
+
+	var resp StatusResponse
+	if err := respEvt.UnmarshalData(&resp); err != nil {
+		return nil, errors.Wrap(err, "failed to unmarshal getstatus response")
+	}
+	if resp.Status != "ok" && resp.Error != "" {
+		return nil, errors.Errorf("getstatus error: %s", resp.Error)
+	}
+	if resp.Error != "" {
+		return nil, errors.Errorf("getstatus error: %s", resp.Error)
+	}
+	if resp.Data == nil {
+		return nil, errors.New("getstatus response missing data payload")
+	}
+	return resp.Data, nil
 }
 
 // SendNavigate transmits an asynchronous (fire-and-forget) navigation command.

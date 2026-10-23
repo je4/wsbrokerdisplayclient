@@ -3,10 +3,13 @@ package displayclient
 import (
 	"context"
 	"encoding/json"
+	"net"
 	"sync"
 	"testing"
 	"time"
 
+	"emperror.dev/errors"
+	"github.com/beevik/ntp"
 	"github.com/je4/utils/v2/pkg/zLogger"
 	rawclient "github.com/je4/wsbrokerclient/pkg/client"
 	"github.com/je4/wsbrokerclient/pkg/event"
@@ -26,16 +29,46 @@ type mockBrokerClient struct {
 	handlers      []rawclient.EventHandler
 	sentEvents    []*event.Event
 	onSend        func(ctx context.Context, evt *event.Event) error
+	onRequest     func(ctx context.Context, evt *event.Event) (*event.Event, error)
+	waiters       map[string]chan *event.Event
 	connectCalled bool
 	closed        bool
 }
 
+var _ rawclient.BrokerClient = (*mockBrokerClient)(nil)
+
 func newMockBrokerClient(name string) *mockBrokerClient {
-	return &mockBrokerClient{name: name}
+	return &mockBrokerClient{
+		name:    name,
+		waiters: make(map[string]chan *event.Event),
+	}
 }
 
 func (m *mockBrokerClient) ClientName() string {
 	return m.name
+}
+
+func (m *mockBrokerClient) Mode() rawclient.ConnectionMode {
+	return rawclient.ModeRW
+}
+
+func (m *mockBrokerClient) Channels() []string {
+	return nil
+}
+
+func (m *mockBrokerClient) IsConnected() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return !m.closed
+}
+
+func (m *mockBrokerClient) GetState() rawclient.ConnectionState {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.closed {
+		return rawclient.StateClosed
+	}
+	return rawclient.StateConnected
 }
 
 func (m *mockBrokerClient) Send(ctx context.Context, evt *event.Event) error {
@@ -48,6 +81,120 @@ func (m *mockBrokerClient) Send(ctx context.Context, evt *event.Event) error {
 		return onSend(ctx, evt)
 	}
 	return nil
+}
+
+func (m *mockBrokerClient) SendMessage(ctx context.Context, target string, data any) error {
+	evt, err := event.NewMessageEvent(m.ClientName(), target, data)
+	if err != nil {
+		return err
+	}
+	return m.Send(ctx, evt)
+}
+
+func (m *mockBrokerClient) Broadcast(ctx context.Context, channel string, data any) error {
+	return m.SendMessage(ctx, channel, data)
+}
+
+func (m *mockBrokerClient) SendDirect(ctx context.Context, targetClient string, data any) error {
+	return m.SendMessage(ctx, targetClient, data)
+}
+
+func (m *mockBrokerClient) Request(ctx context.Context, evt *event.Event) (*event.Event, error) {
+	m.mu.Lock()
+	if m.closed {
+		m.mu.Unlock()
+		return nil, errors.New("client is closed")
+	}
+	onRequest := m.onRequest
+	m.mu.Unlock()
+
+	if onRequest != nil {
+		return onRequest(ctx, evt)
+	}
+
+	if evt.Token == "" {
+		tok, err := rawclient.GenerateToken()
+		if err != nil {
+			return nil, err
+		}
+		evt.Token = tok
+	}
+
+	ch := make(chan *event.Event, 1)
+	m.mu.Lock()
+	if m.waiters == nil {
+		m.waiters = make(map[string]chan *event.Event)
+	}
+	m.waiters[evt.Token] = ch
+	m.mu.Unlock()
+
+	defer func() {
+		m.mu.Lock()
+		delete(m.waiters, evt.Token)
+		m.mu.Unlock()
+	}()
+
+	if err := m.Send(ctx, evt); err != nil {
+		return nil, err
+	}
+
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case resp, ok := <-ch:
+		if !ok || resp == nil {
+			return nil, errors.New("client closed before response received")
+		}
+		return resp, nil
+	}
+}
+
+func (m *mockBrokerClient) Attach(ctx context.Context, channels ...string) error {
+	return nil
+}
+
+func (m *mockBrokerClient) Detach(ctx context.Context, channels ...string) error {
+	return nil
+}
+
+func (m *mockBrokerClient) Subscribe(ctx context.Context, channel string) (rawclient.Subscription, error) {
+	return nil, nil
+}
+
+func (m *mockBrokerClient) Ping(ctx context.Context) error {
+	return nil
+}
+
+func (m *mockBrokerClient) QueryNTP(ctx context.Context, data []byte) ([]byte, error) {
+	return nil, nil
+}
+
+func (m *mockBrokerClient) NTP(ctx context.Context, opts ...ntp.QueryOptions) (*ntp.Response, error) {
+	return nil, nil
+}
+
+func (m *mockBrokerClient) ClockOffset() time.Duration {
+	return 0
+}
+
+func (m *mockBrokerClient) Time() time.Time {
+	return time.Now()
+}
+
+func (m *mockBrokerClient) SyncNTP(ctx context.Context, opts ...ntp.QueryOptions) (time.Duration, error) {
+	return 0, nil
+}
+
+func (m *mockBrokerClient) NewNTPConn(ctx context.Context) net.Conn {
+	return nil
+}
+
+func (m *mockBrokerClient) QueryChannelInfo(ctx context.Context, channel string) (*event.ChannelInfo, error) {
+	return nil, nil
+}
+
+func (m *mockBrokerClient) ChannelInfo(ctx context.Context, channel string) (*event.ChannelInfo, error) {
+	return nil, nil
 }
 
 func (m *mockBrokerClient) OnEvent(handler rawclient.EventHandler) rawclient.UnsubscribeFunc {
@@ -76,6 +223,26 @@ func (m *mockBrokerClient) OnChannel(channel string, handler rawclient.EventHand
 	return m.OnEvent(handler)
 }
 
+func (m *mockBrokerClient) OnType(t event.EventType, handler rawclient.EventHandler) rawclient.UnsubscribeFunc {
+	return m.OnEvent(handler)
+}
+
+func (m *mockBrokerClient) OnConnect(callback func()) rawclient.UnsubscribeFunc {
+	return func() {}
+}
+
+func (m *mockBrokerClient) OnDisconnect(callback func(error)) rawclient.UnsubscribeFunc {
+	return func() {}
+}
+
+func (m *mockBrokerClient) OnReconnect(callback func()) rawclient.UnsubscribeFunc {
+	return func() {}
+}
+
+func (m *mockBrokerClient) OnError(callback func(error)) rawclient.UnsubscribeFunc {
+	return func() {}
+}
+
 func (m *mockBrokerClient) Connect(ctx context.Context) error {
 	m.mu.Lock()
 	m.connectCalled = true
@@ -93,11 +260,26 @@ func (m *mockBrokerClient) ConnectSync(ctx context.Context) error {
 func (m *mockBrokerClient) Close() error {
 	m.mu.Lock()
 	m.closed = true
+	for tok, ch := range m.waiters {
+		delete(m.waiters, tok)
+		close(ch)
+	}
 	m.mu.Unlock()
 	return nil
 }
 
 func (m *mockBrokerClient) EmitEvent(evt *event.Event) {
+	if evt != nil && evt.Token != "" {
+		m.mu.Lock()
+		if ch, ok := m.waiters[evt.Token]; ok {
+			select {
+			case ch <- evt:
+			default:
+			}
+		}
+		m.mu.Unlock()
+	}
+
 	m.mu.Lock()
 	handlers := make([]rawclient.EventHandler, len(m.handlers))
 	copy(handlers, m.handlers)
